@@ -1,4 +1,5 @@
 {% extends "core/base.html" %}
+{% load candidate_filters %}
 
 {% block title %}Candidate Profile - Recruiter Platform{% endblock %}
 
@@ -475,15 +476,7 @@
         }
 
         /* Custom template filter for splitting strings */
-        {% filter register_filter:"split" %}
-        def split(value, arg):
-            return value.split(arg)
-        {% endfilter %}
 
-        {% filter register_filter:"strip" %}
-        def strip(value):
-            return value.strip()
-        {% endfilter %}
 
         /* Responsive styles */
         @media (max-width: 768px) {

@@ -1,3 +1,4 @@
+import signal
 from datetime import datetime
 
 from django.shortcuts import render, redirect
@@ -13,7 +14,7 @@ from django.contrib.auth.decorators import login_required
 from django.utils import timezone
 
 from .models import Candidate, Assessment, HiringManager, CodingQuestion
-from .utils.email_utils import generate_random_password
+from .utils.email_utils import generate_random_password, send_candidate_credentials_email
 from .forms import AddCandidateForm
 
 from django.http import Http404, HttpResponseNotFound
@@ -37,6 +38,9 @@ from .models import Candidate, Assessment
 from .utils.email_utils import send_interview_invitation_email, send_rejection_email
 from .utils.gdpr_utils import cleanup_candidate_data
 
+from django.shortcuts import render, get_object_or_404
+from django.http import HttpResponse
+from .models import Assessment, Candidate
 
 
 def home(request):
@@ -299,10 +303,10 @@ def add_candidate(request):
         form = AddCandidateForm(request.POST)
         if form.is_valid():
             # Create a new user with candidate flag
-            User = get_user_model()
+            new_user = get_user_model()
             password = generate_random_password()
 
-            user = User.objects.create_user(
+            user = new_user.objects.create_user(
                 email=form.cleaned_data['email'],
                 full_name=form.cleaned_data['full_name'],
                 is_candidate=True,
@@ -311,6 +315,12 @@ def add_candidate(request):
 
             # The signal should handle creating the Candidate profile,
             # storing the generated password, and sending the email
+
+            send_candidate_credentials_email(
+                candidate_email=form.cleaned_data['email'],
+                candidate_password=password,
+                candidate_name=form.cleaned_data['full_name'],
+            )
 
             messages.success(
                 request,

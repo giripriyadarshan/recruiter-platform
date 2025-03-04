@@ -51,6 +51,7 @@ def send_candidate_credentials_email(candidate_email, candidate_password, candid
     Returns:
     - Boolean indicating if the email was sent successfully
     """
+
     subject = "Your Recruiter Platform Credentials"
 
     greeting = f"Hello {candidate_name}," if candidate_name else "Hello,"
@@ -113,8 +114,8 @@ Assessment details:
 - Time limit: {assessment.time_limit_minutes} minutes
 - Expiry: The assessment link will expire in 7 days
 
-Please click the link below to start your assessment:
-{settings.SITE_URL}/candidate-assessment/{assessment.id}/
+Please click the link below to accept your assessment:
+{settings.SITE_URL}/candidate/assessment/accept/{assessment.id}/
 
 Note: Once you start the assessment, you will need to complete it within the time limit.
 

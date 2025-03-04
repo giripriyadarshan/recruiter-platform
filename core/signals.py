@@ -13,36 +13,6 @@ def create_user_profile(sender, instance, created, **kwargs):
     Signal to create the appropriate profile when a user is created.
     """
     if created:
-        if instance.is_candidate:
-            # Generate a secure random password if one wasn't set
-            if not instance.has_usable_password():
-                password = generate_random_password()
-                instance.set_password(password)
-                # Store the generated password temporarily for the email
-                # This is safe since we're in the same process and this is only
-                # available during this operation
-                temp_password = password
-                instance.save()  # Save the password to the user
-            else:
-                temp_password = None  # Password was already set
-
-            # Create the candidate profile
-            candidate = Candidate.objects.create(user=instance)
-
-            # Store the generated password securely for first-time login verification
-            # Note: In production, you might want to use a more secure approach
-            if temp_password:
-                candidate.generated_password = temp_password  # We're storing this temporarily
-                candidate.save()
-
-                # Send the credentials email
-                send_candidate_credentials_email(
-                    candidate_email=instance.email,
-                    candidate_password=temp_password,
-                    candidate_name=instance.full_name
-                )
-                logger.info(f"Created candidate account for {instance.email} and sent credentials")
-
         if instance.is_hiring_manager:
             HiringManager.objects.create(user=instance, company_name="Default Company Name")
 
