@@ -1,0 +1,137 @@
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin
+from django.contrib import messages
+from .models import User, Candidate, HiringManager, Assessment, CodingQuestion
+from .utils.email_utils import generate_random_password, send_candidate_credentials_email
+
+class CustomUserAdmin(UserAdmin):
+    """
+    Custom User admin configuration to handle the custom user model.
+    """
+    model = User
+    list_display = ('email', 'full_name', 'is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')
+    list_filter = ('is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')
+    fieldsets = (
+        (None, {'fields': ('email', 'password')}),
+        ('Personal Info', {'fields': ('full_name',)}),
+        ('Permissions', {'fields': ('is_candidate', 'is_hiring_manager',
+                                    'is_staff', 'is_active', 'is_superuser',
+                                    'groups', 'user_permissions')}),
+        ('Important dates', {'fields': ('last_login', 'date_joined')}),
+    )
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('email', 'full_name', 'password1', 'password2',
+                       'is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')}
+         ),
+    )
+    search_fields = ('email', 'full_name')
+    ordering = ('email',)
+    actions = ['create_and_email_candidate']
+
+    def create_and_email_candidate(self, request, queryset):
+        """
+        Admin action to manually regenerate and email credentials for selected candidates
+        """
+        candidate_count = 0
+        email_count = 0
+
+        for user in queryset:
+            if user.is_candidate:
+                # Generate a new password
+                password = generate_random_password()
+                user.set_password(password)
+                user.save()
+
+                # Update or create candidate profile
+                candidate, created = Candidate.objects.get_or_create(user=user)
+                candidate.generated_password = password  # Store temporarily
+                candidate.save()
+
+                # Send credentials email
+                if send_candidate_credentials_email(
+                        candidate_email=user.email,
+                        candidate_password=password,
+                        candidate_name=user.full_name
+                ):
+                    email_count += 1
+
+                candidate_count += 1
+
+        messages.success(request,
+                         f"Generated new passwords for {candidate_count} candidates. {email_count} emails sent.")
+
+    create_and_email_candidate.short_description = "Generate & email credentials for candidates"
+
+
+class CandidateAdmin(admin.ModelAdmin):
+    list_display = ('user', 'source', 'source_ranking', 'profile_completed', 'years_of_experience', 'created_at')
+    list_filter = ('source', 'profile_completed')
+    search_fields = ('user__email', 'user__full_name', 'skills')
+    actions = ['resend_credentials_email']
+
+    def resend_credentials_email(self, request, queryset):
+        """
+        Admin action to resend credentials email for selected candidates
+        """
+        email_count = 0
+
+        for candidate in queryset:
+            if candidate.generated_password:  # Only if we have a stored password
+                if send_candidate_credentials_email(
+                        candidate_email=candidate.user.email,
+                        candidate_password=candidate.generated_password,
+                        candidate_name=candidate.user.full_name
+                ):
+                    email_count += 1
+            else:
+                self.message_user(
+                    request,
+                    f"No stored password for {candidate.user.email}. Use 'Generate & email credentials' action on the User.",
+                    level=messages.WARNING
+                )
+
+        messages.success(request, f"Resent credential emails to {email_count} candidates.")
+
+    resend_credentials_email.short_description = "Resend credentials email to candidates"
+
+
+class HiringManagerAdmin(admin.ModelAdmin):
+    list_display = ('user', 'company_name', 'department', 'position', 'can_create_assessments')
+    list_filter = ('company_name', 'can_create_assessments')
+    search_fields = ('user__email', 'user__full_name', 'company_name')
+
+
+class AssessmentAdmin(admin.ModelAdmin):
+    list_display = ('title', 'candidate', 'created_by', 'status', 'score', 'start_time', 'end_time')
+    list_filter = ('status', 'chosen_question_type')
+    search_fields = ('title', 'candidate__user__email', 'created_by__user__email')
+    readonly_fields = ('created_at',)
+
+class CodingQuestionAdmin(admin.ModelAdmin):
+    list_display = ('title', 'question_type', 'difficulty', 'created_at')
+    list_filter = ('question_type', 'difficulty')
+    search_fields = ('title', 'description')
+    fieldsets = (
+        (None, {
+            'fields': ('title', 'description', 'question_type', 'difficulty')
+        }),
+        ('Examples and Constraints', {
+            'fields': ('example_input', 'example_output', 'constraints')
+        }),
+        ('Starter Code', {
+            'fields': ('starter_code_python', 'starter_code_javascript', 'starter_code_sql',
+                      'starter_code_html', 'starter_code_css')
+        }),
+        ('Testing', {
+            'fields': ('test_cases',)
+        }),
+    )
+
+
+admin.site.register(User, CustomUserAdmin)
+admin.site.register(Candidate, CandidateAdmin)
+admin.site.register(HiringManager, HiringManagerAdmin)
+admin.site.register(Assessment, AssessmentAdmin)
+admin.site.register(CodingQuestion, CodingQuestionAdmin)

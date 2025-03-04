@@ -1,0 +1,1062 @@
+from datetime import datetime
+
+from django.shortcuts import render, redirect
+from django.contrib.auth import authenticate, login, get_user_model
+from django.contrib import messages
+from django.http import HttpResponseForbidden
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render, redirect
+from django.contrib.auth import authenticate, login
+from django.contrib import messages
+from django.http import HttpResponseForbidden
+from django.contrib.auth.decorators import login_required
+from django.utils import timezone
+
+from .models import Candidate, Assessment, HiringManager, CodingQuestion
+from .utils.email_utils import generate_random_password
+from .forms import AddCandidateForm
+
+from django.http import Http404, HttpResponseNotFound
+from django.utils.http import urlencode
+from django.urls import reverse
+import uuid
+from django.http import JsonResponse
+import json
+from django.shortcuts import get_object_or_404
+from django.http import JsonResponse
+from .tasks import evaluate_assessment
+from .evaluation import evaluate_submission, logger
+
+from django.contrib import messages
+from django.shortcuts import redirect, render
+from django.http import HttpResponseForbidden, JsonResponse
+from django.utils import timezone
+from django.views.decorators.http import require_POST
+
+from .models import Candidate, Assessment
+from .utils.email_utils import send_interview_invitation_email, send_rejection_email
+from .utils.gdpr_utils import cleanup_candidate_data
+
+
+
+def home(request):
+    """
+    Simple view to display the home page.
+    """
+    return render(request, 'core/home.html')
+
+
+def candidate_login(request):
+    """
+    Handle login for candidates.
+    """
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+
+        user = authenticate(request, username=email, password=password)
+
+        if user is not None and user.is_candidate:
+            login(request, user)
+            return redirect('core:candidate_dashboard')
+        else:
+            messages.error(request, 'Invalid credentials or you are not registered as a candidate.')
+
+    return render(request, 'core/candidate_login.html')
+
+
+def manager_login(request):
+    """
+    Handle login for hiring managers.
+    """
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        password = request.POST.get('password')
+
+        user = authenticate(request, username=email, password=password)
+
+        if user is not None and user.is_hiring_manager:
+            login(request, user)
+            return redirect('core:manager_dashboard')
+        else:
+            messages.error(request, 'Invalid credentials or you are not registered as a hiring manager.')
+
+    return render(request, 'core/manager_login.html')
+
+
+@login_required
+def candidate_dashboard(request):
+    """
+    Dashboard view for candidates.
+    """
+    if not request.user.is_candidate:
+        return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
+
+    return render(request, 'core/candidate_dashboard.html')
+
+
+@login_required
+def manager_dashboard(request):
+    """
+    Enhanced dashboard view for hiring managers with assessment tracking.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
+
+    hiring_manager = request.user.hiring_manager_profile
+
+    # Get all candidates with their user info
+    candidates = Candidate.objects.all().select_related('user')
+
+    # Get all assessments created by this hiring manager
+    assessments = Assessment.objects.filter(created_by=hiring_manager).select_related('candidate__user')
+
+    # Create a dict of candidate_id -> latest assessment for quick lookup
+    candidate_assessments = {}
+    for assessment in assessments:
+        candidate_id = assessment.candidate.id
+        if candidate_id not in candidate_assessments or assessment.created_at > candidate_assessments[
+            candidate_id].created_at:
+            candidate_assessments[candidate_id] = assessment
+
+    # Enhance candidate objects with their assessment info
+    for candidate in candidates:
+        if candidate.id in candidate_assessments:
+            candidate.latest_assessment = candidate_assessments[candidate.id]
+
+            # Add human-readable status description
+            status = candidate.latest_assessment.status
+            evaluation_status = candidate.latest_assessment.evaluation_status
+
+            if status == 'SENT':
+                candidate.status_display = 'Invitation Sent'
+                candidate.status_color = 'blue'
+            elif status == 'ACCEPTED':
+                candidate.status_display = 'Invitation Accepted'
+                candidate.status_color = 'green'
+            elif status == 'STARTED':
+                candidate.status_display = 'Assessment In Progress'
+                candidate.status_color = 'orange'
+            elif status == 'FINISHED':
+                if evaluation_status == 'EVALUATING':
+                    candidate.status_display = 'Evaluation In Progress'
+                    candidate.status_color = 'purple'
+                elif evaluation_status == 'PENDING':
+                    candidate.status_display = 'Awaiting Evaluation'
+                    candidate.status_color = 'yellow'
+                elif evaluation_status == 'FAILED':
+                    candidate.status_display = 'Evaluation Failed'
+                    candidate.status_color = 'red'
+                else:
+                    candidate.status_display = 'Completed'
+                    candidate.status_color = 'gray'
+            elif status == 'SCORING':
+                candidate.status_display = 'Scoring In Progress'
+                candidate.status_color = 'purple'
+            elif status == 'SCORED':
+                candidate.status_display = 'Evaluated'
+                candidate.status_color = 'green'
+            else:
+                candidate.status_display = status
+                candidate.status_color = 'gray'
+        else:
+            candidate.latest_assessment = None
+
+    # Count statistics
+    total_candidates = candidates.count()
+    invited_candidates = sum(1 for c in candidates if c.latest_assessment and c.latest_assessment.status == 'SENT')
+    in_progress_assessments = sum(
+        1 for c in candidates if c.latest_assessment and c.latest_assessment.status in ['ACCEPTED', 'STARTED'])
+    completed_assessments = sum(1 for c in candidates if
+                                c.latest_assessment and c.latest_assessment.status in ['FINISHED', 'SCORING', 'SCORED'])
+    scored_assessments = sum(1 for c in candidates if c.latest_assessment and c.latest_assessment.status == 'SCORED')
+
+    # Interview status statistics
+    accepted_for_interview = sum(1 for c in candidates if c.interview_status == 'ACCEPTED')
+    rejected_candidates = sum(1 for c in candidates if c.interview_status == 'REJECTED')
+
+    # Get list of companies represented in the system
+    companies = HiringManager.objects.values('company_name').distinct()
+    company_names = [company['company_name'] for company in companies]
+
+    # Filter options
+    status_filter = request.GET.get('status', '')
+    interview_filter = request.GET.get('interview_status', '')
+
+    if status_filter:
+        if status_filter == 'INVITED':
+            candidates = [c for c in candidates if c.latest_assessment and c.latest_assessment.status == 'SENT']
+        elif status_filter == 'IN_PROGRESS':
+            candidates = [c for c in candidates if
+                          c.latest_assessment and c.latest_assessment.status in ['ACCEPTED', 'STARTED']]
+        elif status_filter == 'COMPLETED':
+            candidates = [c for c in candidates if
+                          c.latest_assessment and c.latest_assessment.status in ['FINISHED', 'SCORING', 'SCORED']]
+        elif status_filter == 'SCORED':
+            candidates = [c for c in candidates if c.latest_assessment and c.latest_assessment.status == 'SCORED']
+        elif status_filter == 'NO_ASSESSMENT':
+            candidates = [c for c in candidates if not c.latest_assessment]
+
+    if interview_filter:
+        candidates = [c for c in candidates if c.interview_status == interview_filter]
+
+    # Sort options
+    sort_by = request.GET.get('sort', 'name')
+    if sort_by == 'name':
+        candidates = sorted(candidates, key=lambda c: c.user.full_name or c.user.email)
+    elif sort_by == 'status':
+        candidates = sorted(candidates, key=lambda c: c.latest_assessment.status if c.latest_assessment else 'ZZZZ')
+    elif sort_by == 'score':
+        candidates = sorted(candidates, key=lambda
+            c: c.latest_assessment.score if c.latest_assessment and c.latest_assessment.score else -1, reverse=True)
+    elif sort_by == 'interview':
+        candidates = sorted(candidates, key=lambda c: c.interview_status)
+    elif sort_by == 'date':
+        candidates = sorted(candidates, key=lambda
+            c: c.latest_assessment.created_at if c.latest_assessment else timezone.make_aware(datetime.min))
+
+    context = {
+        'candidates': candidates,
+        'total_candidates': total_candidates,
+        'invited_candidates': invited_candidates,
+        'in_progress_assessments': in_progress_assessments,
+        'completed_assessments': completed_assessments,
+        'scored_assessments': scored_assessments,
+        'accepted_for_interview': accepted_for_interview,
+        'rejected_candidates': rejected_candidates,
+        'companies': company_names,
+        'current_sort': sort_by,
+        'current_filter': status_filter,
+        'current_interview_filter': interview_filter,
+        'current_date': '2025-03-04 02:50:42',
+        'current_user': 'kavya-gee',
+    }
+
+    return render(request, 'core/manager_dashboard.html', context)
+
+
+# Add new invite_assessment view
+@login_required
+def invite_assessment(request, candidate_id):
+    """
+    Sends an assessment invitation to a candidate and creates an Assessment object.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to perform this action.")
+
+    try:
+        candidate = Candidate.objects.get(id=candidate_id)
+        hiring_manager = request.user.hiring_manager_profile
+
+        # Check if an assessment already exists for this candidate
+        existing_assessment = Assessment.objects.filter(
+            candidate=candidate,
+            status__in=['DRAFT', 'SENT', 'ACCEPTED', 'STARTED']
+        ).first()
+
+        if existing_assessment:
+            messages.warning(
+                request,
+                f"Assessment already exists for {candidate.user.email} with status: {existing_assessment.get_status_display()}"
+            )
+            return redirect('core:manager_dashboard')
+
+        # Create a new assessment
+        assessment = Assessment.objects.create(
+            candidate=candidate,
+            created_by=hiring_manager,
+            title=f"Coding Assessment for {candidate.user.full_name or candidate.user.email}",
+            description="Please complete this coding assessment to proceed with your application.",
+            status='SENT',
+            sent_at=timezone.now(),
+            # Default assessment questions can be added here
+            question_frontend="Create a responsive form with validation using React.js...",
+            question_backend="Build a RESTful API with authentication using Django...",
+            question_database="Design a database schema for a social media platform..."
+        )
+
+        # Send the invitation email
+        from core.utils.email_utils import send_assessment_invitation_email
+        send_assessment_invitation_email(assessment)
+
+        messages.success(request, f"Assessment invitation sent to {candidate.user.email}")
+    except Candidate.DoesNotExist:
+        messages.error(request, "Candidate not found.")
+    except Exception as e:
+        messages.error(request, f"Error sending invitation: {str(e)}")
+
+    return redirect('core:manager_dashboard')
+
+@login_required
+def add_candidate(request):
+    """
+    View for hiring managers to add a new candidate
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
+
+    if request.method == 'POST':
+        form = AddCandidateForm(request.POST)
+        if form.is_valid():
+            # Create a new user with candidate flag
+            User = get_user_model()
+            password = generate_random_password()
+
+            user = User.objects.create_user(
+                email=form.cleaned_data['email'],
+                full_name=form.cleaned_data['full_name'],
+                is_candidate=True,
+                password=password
+            )
+
+            # The signal should handle creating the Candidate profile,
+            # storing the generated password, and sending the email
+
+            messages.success(
+                request,
+                f"Candidate {form.cleaned_data['email']} was created successfully and sent login credentials."
+            )
+            return redirect('core:manager_dashboard')
+    else:
+        form = AddCandidateForm()
+
+    return render(request, 'core/add_candidate.html', {'form': form})
+
+
+def accept_assessment_invite(request, assessment_id):
+    """
+    Handle the acceptance of an assessment invitation.
+    """
+    try:
+        assessment = Assessment.objects.get(id=assessment_id)
+
+        # Check if the assessment is in the right state
+        if assessment.status != 'SENT':
+            if assessment.status == 'ACCEPTED':
+                messages.info(request, "You have already accepted this assessment.")
+                return redirect('core:candidate_dashboard')
+            elif assessment.status == 'STARTED':
+                messages.info(request, "This assessment has already been started.")
+                return redirect('core:candidate_dashboard')
+            else:
+                messages.error(request,
+                               f"This assessment cannot be accepted (status: {assessment.get_status_display()}).")
+                return redirect('core:candidate_dashboard')
+
+        # Check if the invitation is expired
+        if assessment.is_invite_expired():
+            messages.error(request, "This assessment invitation has expired.")
+            return redirect('core:candidate_dashboard')
+
+        # Update the assessment status
+        assessment.status = 'ACCEPTED'
+        assessment.accepted_at = timezone.now()
+        assessment.save()
+
+        # Send email with link to start the assessment
+        from core.utils.email_utils import send_assessment_acceptance_email
+        send_assessment_acceptance_email(assessment)
+
+        # Login is not required to accept, but we'll redirect to login if needed
+        if request.user.is_authenticated and request.user.is_candidate:
+            messages.success(request, "Assessment accepted. You can now start it from your dashboard.")
+            return redirect('core:candidate_dashboard')
+        else:
+            messages.success(request, "Assessment accepted. Please log in to begin.")
+            return redirect('core:candidate_login')
+
+    except Assessment.DoesNotExist:
+        return HttpResponseNotFound("Assessment not found")
+
+
+@login_required
+def candidate_dashboard(request):
+    """
+    Dashboard view for candidates.
+    """
+    if not request.user.is_candidate:
+        return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
+
+    # Get the candidate's profile
+    candidate = request.user.candidate_profile
+
+    # Get all assessments for this candidate
+    current_user = request.user.full_name
+    assessments = Assessment.objects.filter(candidate=candidate).order_by('-created_at')
+
+    # Process each assessment for display
+    for assessment in assessments:
+        if assessment.status == 'STARTED':
+            assessment.remaining_time = assessment.time_remaining()
+            assessment.progress = assessment.progress_percentage()
+
+    context = {
+        'assessments': assessments,
+        'current_date': timezone.now(),
+        'current_user': current_user,
+    }
+
+    return render(request, 'core/candidate_dashboard.html', context)
+
+
+@login_required
+def start_assessment(request, token):
+    """
+    Start an assessment or resume an in-progress assessment.
+    """
+    if not request.user.is_candidate:
+        return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
+
+    try:
+        # Get assessment by token
+        assessment = Assessment.objects.get(
+            assessment_url_token=token,
+            candidate=request.user.candidate_profile
+        )
+
+        # Check assessment status
+        if assessment.status not in ['ACCEPTED', 'STARTED']:
+            if assessment.status == 'FINISHED':
+                messages.info(request, "You have already completed this assessment.")
+                return redirect('core:candidate_dashboard')
+            else:
+                messages.error(request,
+                               f"This assessment cannot be started (status: {assessment.get_status_display()}).")
+                return redirect('core:candidate_dashboard')
+
+        # Check if invitation has expired
+        if assessment.is_invite_expired():
+            messages.error(request, "This assessment invitation has expired.")
+            return redirect('core:candidate_dashboard')
+
+        # If assessment is being started for the first time
+        if assessment.status == 'ACCEPTED':
+            assessment.status = 'STARTED'
+            assessment.start_time = timezone.now()
+            assessment.end_time = assessment.start_time + timezone.timedelta(hours=24)
+            assessment.save()
+
+            # Show instructions first time
+            return render(request, 'core/assessment_instructions.html', {'assessment': assessment})
+
+        # If already started, check if time is up
+        if assessment.is_time_up():
+            messages.error(request, "Time is up. You can no longer work on this assessment.")
+            assessment.status = 'FINISHED'
+            assessment.save()
+            return redirect('core:candidate_dashboard')
+
+        # Continue working on assessment
+        remaining_time = assessment.time_remaining()
+
+        # Determine which question to show based on chosen_question_type
+        question = None
+        if assessment.chosen_question_type == 'FRONTEND':
+            question = assessment.question_frontend
+        elif assessment.chosen_question_type == 'BACKEND':
+            question = assessment.question_backend
+        elif assessment.chosen_question_type == 'DATABASE':
+            question = assessment.question_database
+        else:
+            # If no question type chosen yet, show question selection
+            return render(request, 'core/assessment_question_selection.html', {'assessment': assessment})
+
+        return render(request, 'core/assessment_workspace.html', {
+            'assessment': assessment,
+            'question': question,
+            'remaining_time': remaining_time
+        })
+
+    except Assessment.DoesNotExist:
+        return HttpResponseNotFound("Assessment not found or not assigned to you.")
+
+
+@login_required
+def choose_assessment_question(request, token):
+    """
+    Handle selection of question type and specific question for the assessment.
+    """
+    if not request.user.is_candidate:
+        return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
+
+    try:
+        assessment = Assessment.objects.get(
+            assessment_url_token=token,
+            candidate=request.user.candidate_profile,
+            status='STARTED'
+        )
+
+        # Check if we have already chosen a question
+        if assessment.chosen_question:
+            return redirect('core:view_assessment', token=token)
+
+        if request.method == 'POST':
+            question_id = request.POST.get('question_id')
+
+            try:
+                question = CodingQuestion.objects.get(id=question_id)
+
+                # Check if this question is available for this assessment
+                if assessment.available_questions.filter(
+                        id=question_id).exists() or not assessment.available_questions.exists():
+                    assessment.chosen_question = question
+                    assessment.chosen_question_type = question.question_type
+
+                    # Set default language based on question type
+                    if question.question_type == 'FRONTEND':
+                        assessment.code_language = 'javascript'
+                    elif question.question_type == 'BACKEND':
+                        assessment.code_language = 'python'
+                    elif question.question_type == 'DATABASE':
+                        assessment.code_language = 'sql'
+
+                    assessment.save()
+
+                    messages.success(request, f"You've selected the question: {question.title}")
+                    return redirect('core:view_assessment', token=token)
+                else:
+                    messages.error(request, "This question is not available for your assessment.")
+            except CodingQuestion.DoesNotExist:
+                messages.error(request, "Invalid question selection.")
+
+        # Get question options based on the assessment configuration
+        if assessment.available_questions.exists():
+            questions = assessment.available_questions.all()
+        else:
+            # If no specific questions are assigned, get default questions by type
+            questions = CodingQuestion.objects.all()
+
+        return render(request, 'core/assessment_question_selection.html', {
+            'assessment': assessment,
+            'questions': questions,
+            'current_date': '2025-03-02 01:26:42',
+            'current_user': 'kavya-gee',
+        })
+
+    except Assessment.DoesNotExist:
+        return HttpResponseNotFound("Assessment not found or not assigned to you.")
+
+
+@login_required
+def view_assessment(request, token):
+    """
+    View the assessment details and progress.
+    """
+    if not request.user.is_candidate:
+        return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
+
+    try:
+        assessment = Assessment.objects.get(
+            assessment_url_token=token,
+            candidate=request.user.candidate_profile
+        )
+
+        # If assessment is finished, show summary
+        if assessment.status == 'FINISHED':
+            return render(request, 'core/assessment_summary.html', {
+                'assessment': assessment,
+                'current_date': '2025-03-02 01:26:42',
+                'current_user': 'kavya-gee',
+            })
+
+        # If assessment has expired but not marked finished
+        if assessment.is_time_up():
+            assessment.status = 'FINISHED'
+            assessment.save()
+            messages.error(request, "Time is up. Your assessment has been submitted automatically.")
+            return redirect('core:candidate_dashboard')
+
+        # If still in progress
+        if assessment.status == 'STARTED':
+            # If no question has been chosen, redirect to question selection
+            if not assessment.chosen_question:
+                return redirect('core:choose_assessment_question', token=token)
+
+            # Handle form submission for saving code
+            if request.method == 'POST':
+                code_submission = request.POST.get('code_submission', '')
+                code_language = request.POST.get('code_language', assessment.code_language)
+
+                assessment.code_submission = code_submission
+                assessment.code_language = code_language
+                assessment.save()
+
+                # If this is an AJAX request, return a JSON response
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return JsonResponse({
+                        'status': 'success',
+                        'message': 'Code saved successfully',
+                        'saved_at': '2025-03-02 01:26:42',
+                    })
+
+                messages.success(request, "Your code has been saved.")
+
+            # Get starter code based on the chosen language if no submission yet
+            if not assessment.code_submission and assessment.chosen_question:
+                assessment.code_submission = assessment.chosen_question.get_starter_code(assessment.code_language)
+                assessment.save()
+
+            return render(request, 'core/assessment_workspace.html', {
+                'assessment': assessment,
+                'question': assessment.chosen_question,
+                'remaining_time': assessment.time_remaining(),
+                'current_date': '2025-03-02 01:26:42',
+                'current_user': 'kavya-gee',
+            })
+
+        # If accepted but not started
+        if assessment.status == 'ACCEPTED':
+            return redirect('core:start_assessment', token=token)
+
+        # Other cases
+        messages.info(request, f"Assessment status: {assessment.get_status_display()}")
+        return redirect('core:candidate_dashboard')
+
+    except Assessment.DoesNotExist:
+        return HttpResponseNotFound("Assessment not found or not assigned to you.")
+
+
+@login_required
+def submit_assessment(request, token):
+    """
+    Handle final submission of the assessment.
+    """
+    if not request.user.is_candidate:
+        return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
+
+    try:
+        assessment = Assessment.objects.get(
+            assessment_url_token=token,
+            candidate=request.user.candidate_profile,
+            status='STARTED'
+        )
+
+        if request.method == 'POST':
+            # Save code submission
+            code_submission = request.POST.get('code_submission', '')
+            code_language = request.POST.get('code_language', '')
+
+            assessment.code_submission = code_submission
+            assessment.code_language = code_language
+            assessment.status = 'FINISHED'
+            assessment.end_time = timezone.now()
+            assessment.evaluation_status = 'PENDING'  # Mark for evaluation
+            assessment.save()
+
+            # Trigger evaluation process
+            try:
+                # Use Celery for asynchronous processing
+                evaluate_assessment.delay(assessment.id)
+                messages.success(request,
+                                 "Your assessment has been successfully submitted and will be evaluated shortly!")
+            except Exception as e:
+                logger.exception("Failed to queue evaluation task")
+                messages.success(request, "Your assessment has been submitted! It will be evaluated by our team.")
+
+            return redirect('core:candidate_dashboard')
+
+        return render(request, 'core/assessment_submit_confirmation.html', {
+            'assessment': assessment,
+            'current_date': '2025-03-02 02:19:33',
+            'current_user': 'kavya-gee'
+        })
+
+    except Assessment.DoesNotExist:
+        return HttpResponseNotFound("Assessment not found or not assigned to you.")
+
+
+@login_required
+def save_code(request, token):
+    """
+    AJAX endpoint to save code without reloading the page
+    """
+    if not request.user.is_candidate or request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request'}, status=400)
+
+    try:
+        assessment = Assessment.objects.get(
+            assessment_url_token=token,
+            candidate=request.user.candidate_profile,
+            status='STARTED'
+        )
+
+        if assessment.is_time_up():
+            return JsonResponse({'status': 'error', 'message': 'Time is up'}, status=400)
+
+        data = json.loads(request.body)
+        code_submission = data.get('code')
+        code_language = data.get('language', assessment.code_language)
+
+        assessment.code_submission = code_submission
+        assessment.code_language = code_language
+        assessment.save()
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Code saved successfully',
+            'saved_at': '2025-03-02 01:26:42'
+        })
+
+    except Assessment.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Assessment not found'}, status=404)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@login_required
+def check_evaluation_status(request, assessment_id):
+    """
+    API endpoint to check the status of an assessment evaluation.
+    """
+    assessment = get_object_or_404(Assessment, id=assessment_id)
+
+    # Ensure the user can access this assessment
+    if request.user.is_candidate and assessment.candidate != request.user.candidate_profile:
+        return JsonResponse({"error": "Access denied"}, status=403)
+
+    if request.user.is_hiring_manager and assessment.created_by != request.user.hiring_manager_profile:
+        return JsonResponse({"error": "Access denied"}, status=403)
+
+    # Return the evaluation status
+    return JsonResponse({
+        "id": assessment.id,
+        "status": assessment.status,
+        "evaluation_status": assessment.evaluation_status,
+        "evaluation_score": assessment.evaluation_score,
+        "completed_at": assessment.evaluation_completed_at.isoformat() if assessment.evaluation_completed_at else None
+    })
+
+
+# Add option to manually trigger evaluation for hiring managers
+@login_required
+def trigger_evaluation(request, assessment_id):
+    """
+    Allow hiring managers to manually trigger evaluation for an assessment.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access denied. Only hiring managers can perform this action.")
+
+    assessment = get_object_or_404(Assessment, id=assessment_id)
+
+    # Check if the hiring manager has permission for this assessment
+    if assessment.created_by != request.user.hiring_manager_profile:
+        return HttpResponseForbidden("Access denied. You don't have permission for this assessment.")
+
+    # Check if the assessment is ready for evaluation
+    if assessment.status != 'FINISHED':
+        messages.error(request, "This assessment cannot be evaluated yet.")
+        return redirect('core:manager_assessment_detail', assessment_id=assessment_id)
+
+    # Run evaluation synchronously for immediate feedback
+    try:
+        # Synchronous evaluation
+        results = evaluate_submission(assessment)
+
+        if results.get('status') == 'success':
+            messages.success(request, f"Evaluation completed with score: {assessment.evaluation_score}")
+            assessment.status = 'SCORED'
+            assessment.save()
+        else:
+            messages.error(request, f"Evaluation failed: {results.get('message')}")
+
+    except Exception as e:
+        messages.error(request, f"Error during evaluation: {str(e)}")
+
+    return redirect('core:manager_assessment_detail', assessment_id=assessment_id)
+
+
+@login_required
+def view_candidate(request, candidate_id):
+    """
+    View a candidate's profile details.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
+
+    candidate = get_object_or_404(Candidate, id=candidate_id)
+
+    # Get all assessments for this candidate
+    assessments = Assessment.objects.filter(candidate=candidate).order_by('-created_at')
+
+    context = {
+        'candidate': candidate,
+        'assessments': assessments,
+        'current_date': '2025-03-04 02:37:42',
+        'current_user': 'kavya-gee',
+    }
+
+    return render(request, 'core/view_candidate.html', context)
+
+
+@login_required
+def edit_candidate(request, candidate_id):
+    """
+    Edit a candidate's information.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
+
+    candidate = get_object_or_404(Candidate, id=candidate_id)
+
+    if request.method == 'POST':
+        form = CandidateForm(request.POST, instance=candidate)
+        user_form = UserForm(request.POST, instance=candidate.user)
+
+        if form.is_valid() and user_form.is_valid():
+            user = user_form.save()
+            candidate = form.save(commit=False)
+            candidate.user = user
+            candidate.save()
+
+            messages.success(request, f"Candidate {user.email} updated successfully.")
+            return redirect('core:manager_dashboard')
+    else:
+        form = CandidateForm(instance=candidate)
+        user_form = UserForm(instance=candidate.user)
+
+    context = {
+        'form': form,
+        'user_form': user_form,
+        'candidate': candidate,
+        'current_date': '2025-03-04 02:37:42',
+        'current_user': 'kavya-gee',
+    }
+
+    return render(request, 'core/edit_candidate.html', context)
+
+
+@login_required
+def resend_assessment(request, assessment_id):
+    """
+    Resend an assessment invitation email to a candidate.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
+
+    assessment = get_object_or_404(Assessment, id=assessment_id)
+
+    # Check if the hiring manager has permission for this assessment
+    if assessment.created_by != request.user.hiring_manager_profile:
+        return HttpResponseForbidden("Access denied. You don't have permission for this assessment.")
+
+    try:
+        # Resend the invitation based on the current status
+        if assessment.status == 'SENT':
+            # Resend the initial invitation
+            from core.utils.email_utils import send_assessment_invitation_email
+            send_assessment_invitation_email(assessment)
+
+            # Reset expiry date to give another 7 days
+            assessment.invite_expires_at = timezone.now() + timezone.timedelta(days=7)
+            assessment.save()
+
+            messages.success(request, f"Assessment invitation resent to {assessment.candidate.user.email}.")
+
+        elif assessment.status == 'ACCEPTED':
+            # Resend the acceptance email with the start link
+            from core.utils.email_utils import send_assessment_acceptance_email
+            send_assessment_acceptance_email(assessment)
+
+            # Reset expiry date to give another 7 days
+            assessment.invite_expires_at = timezone.now() + timezone.timedelta(days=7)
+            assessment.save()
+
+            messages.success(request, f"Assessment start link resent to {assessment.candidate.user.email}.")
+
+        else:
+            messages.warning(request,
+                             f"Cannot resend email for assessments in {assessment.get_status_display()} status.")
+
+    except Exception as e:
+        messages.error(request, f"Failed to resend email: {str(e)}")
+
+    return redirect('core:manager_dashboard')
+
+
+@login_required
+def manager_assessment_detail(request, assessment_id):
+    """
+    Show detailed assessment information for hiring managers, including candidate code.
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
+
+    assessment = get_object_or_404(Assessment, id=assessment_id)
+
+    # Check if the hiring manager has permission for this assessment
+    if assessment.created_by != request.user.hiring_manager_profile:
+        return HttpResponseForbidden("Access denied. You don't have permission for this assessment.")
+
+    # Handle feedback form submission
+    if request.method == 'POST' and 'feedback' in request.POST:
+        feedback = request.POST.get('feedback', '')
+        assessment.feedback = feedback
+        assessment.save()
+        messages.success(request, "Feedback saved successfully.")
+        return redirect('core:manager_assessment_detail', assessment_id=assessment.id)
+
+    context = {
+        'assessment': assessment,
+        'current_date': '2025-03-04 02:37:42',
+        'current_user': 'kavya-gee',
+    }
+
+    return render(request, 'core/manager_assessment_detail.html', context)
+
+
+@login_required
+def save_feedback(request, assessment_id):
+    """
+    Save feedback for an assessment.
+    """
+    if not request.user.is_hiring_manager or request.method != 'POST':
+        return HttpResponseForbidden("Access denied or invalid request method.")
+
+    assessment = get_object_or_404(Assessment, id=assessment_id)
+
+    # Check if the hiring manager has permission for this assessment
+    if assessment.created_by != request.user.hiring_manager_profile:
+        return HttpResponseForbidden("Access denied. You don't have permission for this assessment.")
+
+    feedback = request.POST.get('feedback', '')
+    assessment.feedback = feedback
+    assessment.save()
+
+    messages.success(request, "Feedback saved successfully.")
+    return redirect('core:manager_assessment_detail', assessment_id=assessment.id)
+
+
+@login_required
+def finalize_interview_decision(request, candidate_id, decision):
+    """
+    Finalize the interview decision for a candidate (accept or reject).
+    """
+    if not request.user.is_hiring_manager:
+        return HttpResponseForbidden("Access Denied: You must be a hiring manager to perform this action.")
+
+    candidate = get_object_or_404(Candidate, id=candidate_id)
+
+    if decision not in ['accept', 'reject']:
+        messages.error(request, "Invalid decision. Must be 'accept' or 'reject'.")
+        return redirect('core:view_candidate', candidate_id=candidate_id)
+
+    # If it's a GET request, show the confirmation page
+    if request.method == 'GET':
+        context = {
+            'candidate': candidate,
+            'decision': decision,
+            'current_date': '2025-03-04 02:48:38',
+            'current_user': 'kavya-gee',
+        }
+        return render(request, 'core/confirm_interview_decision.html', context)
+
+    # If it's a POST request, process the decision
+    elif request.method == 'POST':
+        # Record the decision time
+        candidate.interview_decision_date = timezone.now()
+
+        if decision == 'accept':
+            # Accept the candidate for interview
+            candidate.interview_status = 'ACCEPTED'
+
+            # Get interview date from form
+            interview_date_str = request.POST.get('interview_date', '')
+            interview_time_str = request.POST.get('interview_time', '')
+
+            if interview_date_str and interview_time_str:
+                try:
+                    # Parse and combine date and time
+                    interview_date = timezone.datetime.strptime(
+                        f"{interview_date_str} {interview_time_str}",
+                        "%Y-%m-%d %H:%M"
+                    )
+                    interview_date = timezone.make_aware(interview_date)
+                    candidate.interview_date = interview_date
+                except ValueError:
+                    messages.error(request, "Invalid date or time format.")
+                    return redirect('core:finalize_interview_decision', candidate_id=candidate_id, decision='accept')
+
+            # Save candidate with interview status and date
+            candidate.interview_notes = request.POST.get('notes', '')
+            candidate.save()
+
+            # Send interview invitation email if date is provided
+            if candidate.interview_date:
+                try:
+                    send_interview_invitation_email(candidate, candidate.interview_date)
+                    messages.success(request, f"Interview invitation email sent to {candidate.user.email}")
+                except Exception as e:
+                    messages.error(request, f"Error sending email: {str(e)}")
+            else:
+                messages.info(request, "Candidate accepted, but no interview date was set. No email was sent.")
+
+            messages.success(request, f"Candidate {candidate.user.email} has been accepted for interview.")
+
+        elif decision == 'reject':
+            # Reject the candidate
+            candidate.interview_status = 'REJECTED'
+            candidate.save()
+
+            # Send rejection email before cleaning up data
+            try:
+                send_rejection_email(candidate)
+                messages.success(request, f"Rejection email sent to {candidate.user.email}")
+            except Exception as e:
+                messages.error(request, f"Error sending rejection email: {str(e)}")
+
+            # Clean up candidate data for GDPR compliance
+            success, message = cleanup_candidate_data(candidate)
+
+            if success:
+                messages.success(request, "Candidate data has been anonymized for GDPR compliance.")
+            else:
+                messages.error(request, f"Error during data cleanup: {message}")
+
+            messages.info(request, f"Candidate {candidate.user.email} has been rejected.")
+
+        return redirect('core:view_candidate', candidate_id=candidate_id)
+
+    # If it's another method, reject
+    return HttpResponseForbidden("Invalid request method.")
+
+
+@login_required
+@require_POST
+def interview_decision_ajax(request, candidate_id):
+    """
+    AJAX endpoint for interview decisions.
+    """
+    if not request.user.is_hiring_manager:
+        return JsonResponse({"status": "error", "message": "Access denied"}, status=403)
+
+    candidate = get_object_or_404(Candidate, id=candidate_id)
+    decision = request.POST.get('decision')
+
+    if decision not in ['accept', 'reject']:
+        return JsonResponse({"status": "error", "message": "Invalid decision"}, status=400)
+
+    try:
+        # Record the decision time
+        candidate.interview_decision_date = timezone.now()
+
+        if decision == 'accept':
+            # Accept the candidate
+            candidate.interview_status = 'ACCEPTED'
+            candidate.save()
+            return JsonResponse({"status": "success", "message": "Candidate accepted for interview"})
+
+        elif decision == 'reject':
+            # Reject the candidate
+            candidate.interview_status = 'REJECTED'
+            candidate.save()
+
+            # Send rejection email
+            send_rejection_email(candidate)
+
+            # Clean up candidate data
+            cleanup_candidate_data(candidate)
+
+            return JsonResponse({"status": "success", "message": "Candidate rejected and data cleaned up"})
+
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=500)

@@ -1,0 +1,21 @@
+{% extends "core/base.html" %}
+
+{% block title %}Hiring Manager Login - Recruiter Platform{% endblock %}
+
+{% block content %}
+    <h2>Hiring Manager Login</h2>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit">Login</button>
+    </form>
+    <p>Not a hiring manager? <a href="{% url 'core:candidate_login' %}">Login as candidate</a></p>
+    <p>Return to <a href="{% url 'core:home' %}">Home</a></p>
+{% endblock %}
