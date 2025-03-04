@@ -78,6 +78,8 @@ The Recruiter Platform Team
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[candidate_email],
             fail_silently=False,
+            auth_user=settings.EMAIL_HOST_USER,
+            auth_password=settings.EMAIL_HOST_PASSWORD,
         )
         logger.info(f"Credentials email sent to candidate: {candidate_email}")
         return True
@@ -127,6 +129,8 @@ The Recruiter Platform Team
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[candidate_email],
             fail_silently=False,
+            auth_user=settings.EMAIL_HOST_USER,
+            auth_password=settings.EMAIL_HOST_PASSWORD,
         )
         logger.info(f"Assessment invitation sent to candidate: {candidate_email}")
         return True
@@ -176,6 +180,8 @@ The Recruiter Platform Team
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[candidate_email],
             fail_silently=False,
+            auth_user=settings.EMAIL_HOST_USER,
+            auth_password=settings.EMAIL_HOST_PASSWORD,
         )
         logger.info(f"Assessment start link sent to candidate: {candidate_email}")
         return True
@@ -211,6 +217,8 @@ def send_interview_invitation_email(candidate, interview_date):
         recipient_list=[candidate.user.email],
         html_message=html_message,
         fail_silently=False,
+        auth_user=settings.EMAIL_HOST_USER,
+        auth_password=settings.EMAIL_HOST_PASSWORD,
     )
 
     return True
@@ -241,6 +249,8 @@ def send_rejection_email(candidate):
         recipient_list=[candidate.user.email],
         html_message=html_message,
         fail_silently=False,
+        auth_user=settings.EMAIL_HOST_USER,
+        auth_password=settings.EMAIL_HOST_PASSWORD,
     )
 
     return True
