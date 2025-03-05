@@ -14,7 +14,7 @@ def create_user_profile(sender, instance, created, **kwargs):
     """
     if created:
         if instance.is_hiring_manager:
-            HiringManager.objects.create(user=instance, company_name="Default Company Name")
+            HiringManager.objects.create(user=instance, company_name="Doodle Gmbh")
 
 
 @receiver(post_save, sender=User)
@@ -26,7 +26,7 @@ def save_user_profile(sender, instance, **kwargs):
     if instance.is_candidate and not hasattr(instance, 'candidate_profile'):
         Candidate.objects.create(user=instance)
     if instance.is_hiring_manager and not hasattr(instance, 'hiring_manager_profile'):
-        HiringManager.objects.create(user=instance, company_name="Default Company Name")
+        HiringManager.objects.create(user=instance, company_name="Doodle Gmbh")
 
     # Update existing profiles
     if hasattr(instance, 'candidate_profile'):
