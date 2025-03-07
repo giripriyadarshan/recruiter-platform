@@ -204,7 +204,7 @@ def send_interview_invitation_email(candidate, interview_date):
     context = {
         'candidate_name': candidate.user.get_full_name() or candidate.user.email,
         'interview_date': interview_date,
-        'company_name': candidate.assessment_set.first().created_by.company_name if candidate.assessment_set.exists() else "Our Company",
+        'company_name': candidate.assessments.first().created_by.company_name if candidate.assessments.exists() else "Our Company",
         'contact_email': settings.DEFAULT_FROM_EMAIL,
     }
 
@@ -236,7 +236,7 @@ def send_rejection_email(candidate):
 
     context = {
         'candidate_name': candidate.user.get_full_name() or candidate.user.email,
-        'company_name': candidate.assessment_set.first().created_by.company_name if candidate.assessment_set.exists() else "Our Company",
+        'company_name': candidate.assessments.first().created_by.company_name if candidate.assessments.exists() else "Our Company",
         'contact_email': settings.DEFAULT_FROM_EMAIL,
     }
 

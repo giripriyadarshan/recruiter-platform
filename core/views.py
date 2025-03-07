@@ -41,6 +41,7 @@ from .utils.gdpr_utils import cleanup_candidate_data
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse
 from .models import Assessment, Candidate
+from .forms import AddCandidateForm, CandidateForm, UserForm
 
 
 def home(request):

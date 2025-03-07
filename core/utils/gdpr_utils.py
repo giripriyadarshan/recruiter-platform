@@ -26,7 +26,7 @@ def cleanup_candidate_data(candidate):
         user = candidate.user
 
         # Get all assessments for this candidate
-        assessments = candidate.assessment_set.all()
+        assessments = candidate.assessments.all()
 
         # Delete assessment code submissions and sensitive data
         for assessment in assessments:

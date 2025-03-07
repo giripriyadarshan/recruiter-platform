@@ -21,3 +21,24 @@ class AddCandidateForm(forms.Form):
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError("A user with this email already exists.")
         return email
+
+# Add to core/forms.py
+
+from django import forms
+from django.contrib.auth import get_user_model
+from .models import Candidate
+
+class CandidateForm(forms.ModelForm):
+    """Form for editing Candidate model fields"""
+    class Meta:
+        model = Candidate
+        fields = ['skills', 'resume_url', 'interview_status', 'interview_notes']
+        widgets = {
+            'interview_notes': forms.Textarea(attrs={'rows': 4}),
+        }
+
+class UserForm(forms.ModelForm):
+    """Form for editing User model fields associated with a Candidate"""
+    class Meta:
+        model = get_user_model()
+        fields = ['email', 'full_name']
