@@ -195,6 +195,7 @@ def manager_dashboard(request):
 def invite_assessment(request, candidate_id):
     """
     Sends an assessment invitation to a candidate and creates an Assessment object.
+    Also checks if the candidate has default password and regenerates if needed.
     """
     if not request.user.is_hiring_manager:
         return HttpResponseForbidden("Access Denied: You must be a hiring manager to perform this action.")
@@ -202,6 +203,21 @@ def invite_assessment(request, candidate_id):
     try:
         candidate = Candidate.objects.get(id=candidate_id)
         hiring_manager = request.user.hiring_manager_profile
+
+        # Check if the candidate has a default password
+        new_password = None
+        if candidate.generated_password == "default":
+            # Generate a new password
+            new_password = generate_random_password()
+
+            # Update the candidate's password
+            user = candidate.user
+            user.set_password(new_password)
+            user.save()
+
+            # Update stored password
+            candidate.generated_password = new_password
+            candidate.save()
 
         # Check if an assessment already exists for this candidate
         existing_assessment = Assessment.objects.filter(
@@ -229,6 +245,16 @@ def invite_assessment(request, candidate_id):
             question_backend="Build a RESTful API with authentication using Django...",
             question_database="Design a database schema for a social media platform..."
         )
+
+        # If we generated a new password, send credentials along with the assessment invitation
+        if new_password:
+            # First send the credentials email
+            send_candidate_credentials_email(
+                candidate_email=candidate.user.email,
+                candidate_password=new_password,
+                candidate_name=candidate.user.full_name or candidate.user.email,
+            )
+            messages.success(request, f"New login credentials sent to {candidate.user.email}")
 
         # Send the invitation email
         from core.utils.email_utils import send_assessment_invitation_email
