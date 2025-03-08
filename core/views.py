@@ -185,7 +185,7 @@ def manager_dashboard(request):
         'current_filter': status_filter,
         'current_interview_filter': interview_filter,
         'current_date': '2025-03-04 02:50:42',
-        'current_user': 'kavya-gee',
+        'current_user': request.user.username,
     }
 
     return render(request, 'core/manager_dashboard.html', context)
@@ -520,7 +520,7 @@ def choose_assessment_question(request, token):
             'assessment': assessment,
             'questions': questions,
             'current_date': '2025-03-02 01:26:42',
-            'current_user': 'kavya-gee',
+            'current_user': request.user.username,
         })
 
     except Assessment.DoesNotExist:
@@ -546,7 +546,7 @@ def view_assessment(request, token):
             return render(request, 'core/assessment_summary.html', {
                 'assessment': assessment,
                 'current_date': '2025-03-02 01:26:42',
-                'current_user': 'kavya-gee',
+                'current_user': request.user.username,
             })
 
         # If assessment has expired but not marked finished
@@ -591,7 +591,7 @@ def view_assessment(request, token):
                 'question': assessment.chosen_question,
                 'remaining_time': assessment.time_remaining(),
                 'current_date': '2025-03-02 01:26:42',
-                'current_user': 'kavya-gee',
+                'current_user': request.user.username,
             })
 
         # If accepted but not started
@@ -648,7 +648,7 @@ def submit_assessment(request, token):
         return render(request, 'core/assessment_submit_confirmation.html', {
             'assessment': assessment,
             'current_date': '2025-03-02 02:19:33',
-            'current_user': 'kavya-gee'
+            'current_user': request.user.username
         })
 
     except Assessment.DoesNotExist:
@@ -772,7 +772,7 @@ def view_candidate(request, candidate_id):
         'candidate': candidate,
         'assessments': assessments,
         'current_date': '2025-03-04 02:37:42',
-        'current_user': 'kavya-gee',
+        'current_user': request.user.username,
     }
 
     return render(request, 'core/view_candidate.html', context)
@@ -809,7 +809,7 @@ def edit_candidate(request, candidate_id):
         'user_form': user_form,
         'candidate': candidate,
         'current_date': '2025-03-04 02:37:42',
-        'current_user': 'kavya-gee',
+        'current_user': request.user.username,
     }
 
     return render(request, 'core/edit_candidate.html', context)
@@ -888,7 +888,7 @@ def manager_assessment_detail(request, assessment_id):
     context = {
         'assessment': assessment,
         'current_date': '2025-03-04 02:37:42',
-        'current_user': 'kavya-gee',
+        'current_user': request.user.username,
     }
 
     return render(request, 'core/manager_assessment_detail.html', context)
@@ -936,7 +936,7 @@ def finalize_interview_decision(request, candidate_id, decision):
             'candidate': candidate,
             'decision': decision,
             'current_date': '2025-03-04 02:48:38',
-            'current_user': 'kavya-gee',
+            'current_user': request.user.username,
         }
         return render(request, 'core/confirm_interview_decision.html', context)
 
