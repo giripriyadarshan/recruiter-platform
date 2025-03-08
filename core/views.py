@@ -206,7 +206,7 @@ def invite_assessment(request, candidate_id):
 
         # Check if the candidate has a default password
         new_password = None
-        if candidate.generated_password == "default":
+        if hasattr(candidate, 'generated_password') and candidate.generated_password == "default":
             # Generate a new password
             new_password = generate_random_password()
 
@@ -215,7 +215,7 @@ def invite_assessment(request, candidate_id):
             user.set_password(new_password)
             user.save()
 
-            # Update stored password
+            # Update stored password if it exists
             candidate.generated_password = new_password
             candidate.save()
 
@@ -246,6 +246,9 @@ def invite_assessment(request, candidate_id):
             question_database="Design a database schema for a social media platform..."
         )
 
+        # Send the invitation email
+        from core.utils.email_utils import send_assessment_invitation_email
+
         # If we generated a new password, send credentials along with the assessment invitation
         if new_password:
             # First send the credentials email
@@ -256,8 +259,7 @@ def invite_assessment(request, candidate_id):
             )
             messages.success(request, f"New login credentials sent to {candidate.user.email}")
 
-        # Send the invitation email
-        from core.utils.email_utils import send_assessment_invitation_email
+        # Send the assessment invitation
         send_assessment_invitation_email(assessment)
 
         messages.success(request, f"Assessment invitation sent to {candidate.user.email}")
