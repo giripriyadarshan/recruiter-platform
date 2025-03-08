@@ -28,10 +28,10 @@ def home(request):
 
 def candidate_login(request):
     if request.method == 'POST':
-        email = request.POST.get('email')
+        username = request.POST.get('username')
         password = request.POST.get('password')
 
-        user = authenticate(request, username=email, password=password)
+        user = authenticate(request, username=username, password=password)
 
         if user is not None and user.is_candidate:
             login(request, user)
@@ -44,10 +44,10 @@ def candidate_login(request):
 
 def manager_login(request):
     if request.method == 'POST':
-        email = request.POST.get('email')
+        username = request.POST.get('username')
         password = request.POST.get('password')
 
-        user = authenticate(request, username=email, password=password)
+        user = authenticate(request, username=username, password=password)
 
         if user is not None and user.is_hiring_manager:
             login(request, user)
@@ -159,7 +159,7 @@ def manager_dashboard(request):
 
     sort_by = request.GET.get('sort', 'name')
     if sort_by == 'name':
-        candidates = sorted(candidates, key=lambda c: c.user.full_name or c.user.email)
+        candidates = sorted(candidates, key=lambda c: c.user.full_name or c.user.username)
     elif sort_by == 'status':
         candidates = sorted(candidates, key=lambda c: c.latest_assessment.status if c.latest_assessment else 'ZZZZ')
     elif sort_by == 'score':
@@ -206,7 +206,7 @@ def invite_assessment(request, candidate_id):
 
         # Check if the candidate has a default password
         new_password = None
-        if hasattr(candidate, 'generated_password') and candidate.generated_password == "default":
+        if candidate.generated_password == "default":
             # Generate a new password
             new_password = generate_random_password()
 
@@ -215,7 +215,7 @@ def invite_assessment(request, candidate_id):
             user.set_password(new_password)
             user.save()
 
-            # Update stored password if it exists
+            # Update stored password
             candidate.generated_password = new_password
             candidate.save()
 
@@ -228,7 +228,7 @@ def invite_assessment(request, candidate_id):
         if existing_assessment:
             messages.warning(
                 request,
-                f"Assessment already exists for {candidate.user.email} with status: {existing_assessment.get_status_display()}"
+                f"Assessment already exists for {candidate.user.username} with status: {existing_assessment.get_status_display()}"
             )
             return redirect('core:manager_dashboard')
 
@@ -236,7 +236,7 @@ def invite_assessment(request, candidate_id):
         assessment = Assessment.objects.create(
             candidate=candidate,
             created_by=hiring_manager,
-            title=f"Coding Assessment for {candidate.user.full_name or candidate.user.email}",
+            title=f"Coding Assessment for {candidate.user.full_name or candidate.user.username}",
             description="Please complete this coding assessment to proceed with your application.",
             status='SENT',
             sent_at=timezone.now(),
@@ -246,23 +246,22 @@ def invite_assessment(request, candidate_id):
             question_database="Design a database schema for a social media platform..."
         )
 
-        # Send the invitation email
-        from core.utils.email_utils import send_assessment_invitation_email
-
         # If we generated a new password, send credentials along with the assessment invitation
         if new_password:
             # First send the credentials email
             send_candidate_credentials_email(
+                candidate_username=candidate.user.username,
                 candidate_email=candidate.user.email,
                 candidate_password=new_password,
-                candidate_name=candidate.user.full_name or candidate.user.email,
+                candidate_name=candidate.user.full_name or candidate.user.username,
             )
-            messages.success(request, f"New login credentials sent to {candidate.user.email}")
+            messages.success(request, f"New login credentials sent to {candidate.user.username}")
 
-        # Send the assessment invitation
+        # Send the invitation email
+        from core.utils.email_utils import send_assessment_invitation_email
         send_assessment_invitation_email(assessment)
 
-        messages.success(request, f"Assessment invitation sent to {candidate.user.email}")
+        messages.success(request, f"Assessment invitation sent to {candidate.user.username}")
     except Candidate.DoesNotExist:
         messages.error(request, "Candidate not found.")
     except Exception as e:
@@ -286,6 +285,7 @@ def add_candidate(request):
             password = generate_random_password()
 
             user = new_user.objects.create_user(
+                username=form.cleaned_data['username'],
                 email=form.cleaned_data['email'],
                 full_name=form.cleaned_data['full_name'],
                 is_candidate=True,
@@ -296,6 +296,7 @@ def add_candidate(request):
             # storing the generated password, and sending the email
 
             send_candidate_credentials_email(
+                candidate_username=form.cleaned_data['username'],
                 candidate_email=form.cleaned_data['email'],
                 candidate_password=password,
                 candidate_name=form.cleaned_data['full_name'],
@@ -303,7 +304,7 @@ def add_candidate(request):
 
             messages.success(
                 request,
-                f"Candidate {form.cleaned_data['email']} was created successfully and sent login credentials."
+                f"Candidate {form.cleaned_data['username']} was created successfully and sent login credentials."
             )
             return redirect('core:manager_dashboard')
     else:

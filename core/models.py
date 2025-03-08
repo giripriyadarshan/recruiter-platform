@@ -10,18 +10,20 @@ from django.dispatch import receiver
 
 class CustomUserManager(BaseUserManager):
     """
-    Custom user model manager where email is the unique identifier
-    instead of username.
+    Custom user model manager where username is the unique identifier.
     """
 
-    def create_user(self, email, password=None, **extra_fields):
+    def create_user(self, username, email, password=None, **extra_fields):
         """
-        Create and save a user with the given email and password.
+        Create and save a user with the given username, email and password.
         """
+        if not username:
+            raise ValueError(_('The Username must be set'))
         if not email:
             raise ValueError(_('The Email must be set'))
+
         email = self.normalize_email(email)
-        user = self.model(email=email, **extra_fields)
+        user = self.model(username=username, email=email, **extra_fields)
         if password:
             user.set_password(password)
         else:
@@ -29,9 +31,9 @@ class CustomUserManager(BaseUserManager):
         user.save()
         return user
 
-    def create_superuser(self, email, password, **extra_fields):
+    def create_superuser(self, username, email, password, **extra_fields):
         """
-        Create and save a SuperUser with the given email and password.
+        Create and save a SuperUser with the given username, email and password.
         """
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
@@ -41,26 +43,25 @@ class CustomUserManager(BaseUserManager):
             raise ValueError(_('Superuser must have is_staff=True.'))
         if extra_fields.get('is_superuser') is not True:
             raise ValueError(_('Superuser must have is_superuser=True.'))
-        return self.create_user(email, password, **extra_fields)
+        return self.create_user(username, email, password, **extra_fields)
 
 
 class User(AbstractUser):
     """
-    Custom User model that uses email as the unique identifier instead of username.
+    Custom User model that uses username as the unique identifier.
     """
-    username = None
     email = models.EmailField(_('email address'), unique=True)
     full_name = models.CharField(_('full name'), max_length=255, blank=True)
     is_candidate = models.BooleanField(default=False)
     is_hiring_manager = models.BooleanField(default=False)
 
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = []
+    USERNAME_FIELD = 'username'
+    REQUIRED_FIELDS = ['email']
 
     objects = CustomUserManager()
 
     def __str__(self):
-        return self.email
+        return self.username
 
 
 class Candidate(models.Model):
@@ -115,7 +116,7 @@ class Candidate(models.Model):
     )
 
     def __str__(self):
-        return f"Candidate: {self.user.email}"
+        return f"Candidate: {self.user.username}"
 
     class Meta:
         ordering = ['-created_at']
@@ -134,7 +135,7 @@ class HiringManager(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Hiring Manager: {self.user.email} ({self.company_name})"
+        return f"Hiring Manager: {self.user.username} ({self.company_name})"
 
     class Meta:
         ordering = ['company_name', '-created_at']
@@ -290,7 +291,7 @@ class Assessment(models.Model):
     evaluation_completed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
-        return f"Assessment for {self.candidate.user.email} - {self.status}"
+        return f"Assessment for {self.candidate.user.username} - {self.status}"
 
     def is_expired(self):
         """Check if the assessment has expired."""
@@ -372,4 +373,3 @@ class Assessment(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-

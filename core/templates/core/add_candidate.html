@@ -18,6 +18,14 @@
         {% endif %}
 
         <div class="form-group">
+            <label for="{{ form.username.id_for_label }}">Username:</label>
+            {{ form.username }}
+            {% if form.username.errors %}
+            <div class="alert">{{ form.username.errors }}</div>
+            {% endif %}
+        </div>
+
+        <div class="form-group">
             <label for="{{ form.email.id_for_label }}">Email:</label>
             {{ form.email }}
             {% if form.email.errors %}

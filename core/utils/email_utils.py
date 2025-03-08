@@ -39,12 +39,13 @@ def generate_random_password(length=12):
     return ''.join(password)
 
 
-def send_candidate_credentials_email(candidate_email, candidate_password, candidate_name=None):
+def send_candidate_credentials_email(candidate_username, candidate_email, candidate_password, candidate_name=None):
     """
     Send an email with login credentials to a newly created candidate.
 
     Parameters:
-    - candidate_email: Email address of the candidate (also used as login)
+    - candidate_username: Username of the candidate (used for login)
+    - candidate_email: Email address of the candidate
     - candidate_password: Auto-generated password for the candidate
     - candidate_name: Optional name of the candidate for personalization
 
@@ -61,6 +62,7 @@ def send_candidate_credentials_email(candidate_email, candidate_password, candid
 
 Your account has been created on the Recruiter Platform. Please find your login details below:
 
+Username: {candidate_username}
 Email: {candidate_email}
 Password: {candidate_password}
 
@@ -102,7 +104,8 @@ def send_assessment_invitation_email(assessment):
     subject = "Your Coding Assessment Invitation"
 
     candidate_email = assessment.candidate.user.email
-    candidate_name = assessment.candidate.user.full_name or "Candidate"
+    candidate_username = assessment.candidate.user.username
+    candidate_name = assessment.candidate.user.full_name or candidate_username
 
     message = f"""
 Hello {candidate_name},
@@ -133,10 +136,10 @@ The Recruiter Platform Team
             auth_user=settings.EMAIL_HOST_USER,
             auth_password=settings.EMAIL_HOST_PASSWORD,
         )
-        logger.info(f"Assessment invitation sent to candidate: {candidate_email}")
+        logger.info(f"Assessment invitation sent to candidate: {candidate_username}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send assessment invitation to {candidate_email}: {str(e)}")
+        logger.error(f"Failed to send assessment invitation to {candidate_username}: {str(e)}")
         return False
 
 
@@ -153,7 +156,8 @@ def send_assessment_acceptance_email(assessment):
     subject = "Your Assessment is Ready to Start"
 
     candidate_email = assessment.candidate.user.email
-    candidate_name = assessment.candidate.user.full_name or "Candidate"
+    candidate_username = assessment.candidate.user.username
+    candidate_name = assessment.candidate.user.full_name or candidate_username
 
     message = f"""
 Hello {candidate_name},
@@ -184,10 +188,10 @@ The Recruiter Platform Team
             auth_user=settings.EMAIL_HOST_USER,
             auth_password=settings.EMAIL_HOST_PASSWORD,
         )
-        logger.info(f"Assessment start link sent to candidate: {candidate_email}")
+        logger.info(f"Assessment start link sent to candidate: {candidate_username}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send assessment start link to {candidate_email}: {str(e)}")
+        logger.error(f"Failed to send assessment start link to {candidate_username}: {str(e)}")
         return False
 
 
@@ -202,7 +206,7 @@ def send_interview_invitation_email(candidate, interview_date):
     subject = "Interview Invitation - Next Steps in Your Application"
 
     context = {
-        'candidate_name': candidate.user.get_full_name() or candidate.user.email,
+        'candidate_name': candidate.user.get_full_name() or candidate.user.username,
         'interview_date': interview_date,
         'company_name': candidate.assessments.first().created_by.company_name if candidate.assessments.exists() else "Our Company",
         'contact_email': settings.DEFAULT_FROM_EMAIL,
@@ -235,7 +239,7 @@ def send_rejection_email(candidate):
     subject = "Update on Your Application"
 
     context = {
-        'candidate_name': candidate.user.get_full_name() or candidate.user.email,
+        'candidate_name': candidate.user.get_full_name() or candidate.user.username,
         'company_name': candidate.assessments.first().created_by.company_name if candidate.assessments.exists() else "Our Company",
         'contact_email': settings.DEFAULT_FROM_EMAIL,
     }

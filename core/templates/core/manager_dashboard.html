@@ -7,7 +7,7 @@
         <div class="dashboard-header">
             <div class="welcome-section">
                 <h2>Hiring Manager Dashboard</h2>
-                <p>Welcome, {{ request.user.full_name|default:request.user.email }}</p>
+                <p>Welcome, {{ request.user.full_name|default:request.user.username }}</p>
             </div>
             <div class="user-info">
                 <p>Current user: {{ current_user }}</p>
@@ -102,6 +102,7 @@
                     <thead>
                         <tr>
                             <th>Candidate</th>
+                            <th>Username</th>
                             <th>Email</th>
                             <th>Assessment Status</th>
                             <th>Interview Status</th>
@@ -113,6 +114,7 @@
     {% for candidate in candidates %}
         <tr>
             <td>{{ candidate.user.full_name|default:"No Name" }}</td>
+            <td>{{ candidate.user.username }}</td>
             <td>{{ candidate.user.email }}</td>
             <td>
                 {% if candidate.latest_assessment %}
@@ -175,7 +177,7 @@
         </tr>
     {% empty %}
         <tr>
-            <td colspan="6" class="empty-table">
+            <td colspan="7" class="empty-table">
                 No candidates found. <a href="{% url 'core:add_candidate' %}">Add a candidate</a> to get started.
             </td>
         </tr>

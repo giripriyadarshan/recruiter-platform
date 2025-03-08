@@ -9,10 +9,10 @@ class CustomUserAdmin(UserAdmin):
     Custom User admin configuration to handle the custom user model.
     """
     model = User
-    list_display = ('email', 'full_name', 'is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')
+    list_display = ('username', 'email', 'full_name', 'is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')
     list_filter = ('is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')
     fieldsets = (
-        (None, {'fields': ('email', 'password')}),
+        (None, {'fields': ('username', 'email', 'password')}),
         ('Personal Info', {'fields': ('full_name',)}),
         ('Permissions', {'fields': ('is_candidate', 'is_hiring_manager',
                                     'is_staff', 'is_active', 'is_superuser',
@@ -22,12 +22,12 @@ class CustomUserAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('email', 'full_name', 'password1', 'password2',
+            'fields': ('username', 'email', 'full_name', 'password1', 'password2',
                        'is_candidate', 'is_hiring_manager', 'is_staff', 'is_active')}
          ),
     )
-    search_fields = ('email', 'full_name')
-    ordering = ('email',)
+    search_fields = ('username', 'email', 'full_name')
+    ordering = ('username',)
     actions = ['create_and_email_candidate']
 
     def create_and_email_candidate(self, request, queryset):
@@ -51,6 +51,7 @@ class CustomUserAdmin(UserAdmin):
 
                 # Send credentials email
                 if send_candidate_credentials_email(
+                        candidate_username=user.username,
                         candidate_email=user.email,
                         candidate_password=password,
                         candidate_name=user.full_name
@@ -68,7 +69,7 @@ class CustomUserAdmin(UserAdmin):
 class CandidateAdmin(admin.ModelAdmin):
     list_display = ('user', 'source', 'source_ranking', 'profile_completed', 'years_of_experience', 'created_at')
     list_filter = ('source', 'profile_completed')
-    search_fields = ('user__email', 'user__full_name', 'skills')
+    search_fields = ('user__username', 'user__email', 'user__full_name', 'skills')
     actions = ['resend_credentials_email']
 
     def resend_credentials_email(self, request, queryset):
@@ -80,6 +81,7 @@ class CandidateAdmin(admin.ModelAdmin):
         for candidate in queryset:
             if candidate.generated_password:  # Only if we have a stored password
                 if send_candidate_credentials_email(
+                        candidate_username=candidate.user.username,
                         candidate_email=candidate.user.email,
                         candidate_password=candidate.generated_password,
                         candidate_name=candidate.user.full_name
@@ -88,7 +90,7 @@ class CandidateAdmin(admin.ModelAdmin):
             else:
                 self.message_user(
                     request,
-                    f"No stored password for {candidate.user.email}. Use 'Generate & email credentials' action on the User.",
+                    f"No stored password for {candidate.user.username}. Use 'Generate & email credentials' action on the User.",
                     level=messages.WARNING
                 )
 
@@ -100,13 +102,13 @@ class CandidateAdmin(admin.ModelAdmin):
 class HiringManagerAdmin(admin.ModelAdmin):
     list_display = ('user', 'company_name', 'department', 'position', 'can_create_assessments')
     list_filter = ('company_name', 'can_create_assessments')
-    search_fields = ('user__email', 'user__full_name', 'company_name')
+    search_fields = ('user__username', 'user__email', 'user__full_name', 'company_name')
 
 
 class AssessmentAdmin(admin.ModelAdmin):
     list_display = ('title', 'candidate', 'created_by', 'status', 'score', 'start_time', 'end_time')
     list_filter = ('status', 'chosen_question_type')
-    search_fields = ('title', 'candidate__user__email', 'created_by__user__email')
+    search_fields = ('title', 'candidate__user__username', 'candidate__user__email', 'created_by__user__username')
     readonly_fields = ('created_at',)
 
 class CodingQuestionAdmin(admin.ModelAdmin):
