@@ -1,60 +1,32 @@
-import signal
+import json
 from datetime import datetime
 
-from django.shortcuts import render, redirect
-from django.contrib.auth import authenticate, login, get_user_model
 from django.contrib import messages
-from django.http import HttpResponseForbidden
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
 from django.contrib.auth import authenticate, login
-from django.contrib import messages
-from django.http import HttpResponseForbidden
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.utils import timezone
-
-from .models import Candidate, Assessment, HiringManager, CodingQuestion
-from .utils.email_utils import generate_random_password, send_candidate_credentials_email
-from .forms import AddCandidateForm
-
-from django.http import Http404, HttpResponseNotFound
-from django.utils.http import urlencode
-from django.urls import reverse
-import uuid
-from django.http import JsonResponse
-import json
-from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
-from .tasks import evaluate_assessment
-from .evaluation import evaluate_submission, logger
-
-from django.contrib import messages
-from django.shortcuts import redirect, render
 from django.http import HttpResponseForbidden, JsonResponse
+from django.http import HttpResponseNotFound
+from django.shortcuts import redirect
+from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import Candidate, Assessment
+from .evaluation import evaluate_submission, logger
+from .forms import AddCandidateForm, CandidateForm, UserForm
+from .models import Assessment, Candidate
+from .models import HiringManager, CodingQuestion
+from .tasks import evaluate_assessment
+from .utils.email_utils import generate_random_password, send_candidate_credentials_email
 from .utils.email_utils import send_interview_invitation_email, send_rejection_email
 from .utils.gdpr_utils import cleanup_candidate_data
 
-from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponse
-from .models import Assessment, Candidate
-from .forms import AddCandidateForm, CandidateForm, UserForm
-
 
 def home(request):
-    """
-    Simple view to display the home page.
-    """
     return render(request, 'core/home.html')
 
 
 def candidate_login(request):
-    """
-    Handle login for candidates.
-    """
     if request.method == 'POST':
         email = request.POST.get('email')
         password = request.POST.get('password')
@@ -71,9 +43,6 @@ def candidate_login(request):
 
 
 def manager_login(request):
-    """
-    Handle login for hiring managers.
-    """
     if request.method == 'POST':
         email = request.POST.get('email')
         password = request.POST.get('password')
@@ -91,9 +60,6 @@ def manager_login(request):
 
 @login_required
 def candidate_dashboard(request):
-    """
-    Dashboard view for candidates.
-    """
     if not request.user.is_candidate:
         return HttpResponseForbidden("Access Denied: You must be a candidate to view this page.")
 
@@ -102,21 +68,13 @@ def candidate_dashboard(request):
 
 @login_required
 def manager_dashboard(request):
-    """
-    Enhanced dashboard view for hiring managers with assessment tracking.
-    """
     if not request.user.is_hiring_manager:
         return HttpResponseForbidden("Access Denied: You must be a hiring manager to view this page.")
 
     hiring_manager = request.user.hiring_manager_profile
-
-    # Get all candidates with their user info
     candidates = Candidate.objects.all().select_related('user')
-
-    # Get all assessments created by this hiring manager
     assessments = Assessment.objects.filter(created_by=hiring_manager).select_related('candidate__user')
 
-    # Create a dict of candidate_id -> latest assessment for quick lookup
     candidate_assessments = {}
     for assessment in assessments:
         candidate_id = assessment.candidate.id
@@ -124,12 +82,10 @@ def manager_dashboard(request):
             candidate_id].created_at:
             candidate_assessments[candidate_id] = assessment
 
-    # Enhance candidate objects with their assessment info
     for candidate in candidates:
         if candidate.id in candidate_assessments:
             candidate.latest_assessment = candidate_assessments[candidate.id]
 
-            # Add human-readable status description
             status = candidate.latest_assessment.status
             evaluation_status = candidate.latest_assessment.evaluation_status
 
@@ -167,7 +123,6 @@ def manager_dashboard(request):
         else:
             candidate.latest_assessment = None
 
-    # Count statistics
     total_candidates = candidates.count()
     invited_candidates = sum(1 for c in candidates if c.latest_assessment and c.latest_assessment.status == 'SENT')
     in_progress_assessments = sum(
@@ -176,15 +131,12 @@ def manager_dashboard(request):
                                 c.latest_assessment and c.latest_assessment.status in ['FINISHED', 'SCORING', 'SCORED'])
     scored_assessments = sum(1 for c in candidates if c.latest_assessment and c.latest_assessment.status == 'SCORED')
 
-    # Interview status statistics
     accepted_for_interview = sum(1 for c in candidates if c.interview_status == 'ACCEPTED')
     rejected_candidates = sum(1 for c in candidates if c.interview_status == 'REJECTED')
 
-    # Get list of companies represented in the system
     companies = HiringManager.objects.values('company_name').distinct()
     company_names = [company['company_name'] for company in companies]
 
-    # Filter options
     status_filter = request.GET.get('status', '')
     interview_filter = request.GET.get('interview_status', '')
 
@@ -205,7 +157,6 @@ def manager_dashboard(request):
     if interview_filter:
         candidates = [c for c in candidates if c.interview_status == interview_filter]
 
-    # Sort options
     sort_by = request.GET.get('sort', 'name')
     if sort_by == 'name':
         candidates = sorted(candidates, key=lambda c: c.user.full_name or c.user.email)
@@ -240,7 +191,6 @@ def manager_dashboard(request):
     return render(request, 'core/manager_dashboard.html', context)
 
 
-# Add new invite_assessment view
 @login_required
 def invite_assessment(request, candidate_id):
     """
