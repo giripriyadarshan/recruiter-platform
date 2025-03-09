@@ -23,7 +23,10 @@ from .utils.gdpr_utils import cleanup_candidate_data
 
 
 def home(request):
-    return render(request, 'core/home.html')
+    context = {
+        'current_time': timezone.now(),
+    }
+    return render(request, 'core/home.html', context)
 
 
 def candidate_login(request):
@@ -184,8 +187,8 @@ def manager_dashboard(request):
         'current_sort': sort_by,
         'current_filter': status_filter,
         'current_interview_filter': interview_filter,
-        'current_date': '2025-03-04 02:50:42',
         'current_user': request.user.username,
+        'current_date': timezone.now().date().isoformat(),
     }
 
     return render(request, 'core/manager_dashboard.html', context)
@@ -519,7 +522,7 @@ def choose_assessment_question(request, token):
         return render(request, 'core/assessment_question_selection.html', {
             'assessment': assessment,
             'questions': questions,
-            'current_date': '2025-03-02 01:26:42',
+            'current_date': timezone.now().date().isoformat(),
             'current_user': request.user.username,
         })
 
@@ -545,7 +548,7 @@ def view_assessment(request, token):
         if assessment.status == 'FINISHED':
             return render(request, 'core/assessment_summary.html', {
                 'assessment': assessment,
-                'current_date': '2025-03-02 01:26:42',
+                'current_date': timezone.now().date().isoformat(),
                 'current_user': request.user.username,
             })
 
@@ -576,7 +579,7 @@ def view_assessment(request, token):
                     return JsonResponse({
                         'status': 'success',
                         'message': 'Code saved successfully',
-                        'saved_at': '2025-03-02 01:26:42',
+                        'saved_at': timezone.now(),
                     })
 
                 messages.success(request, "Your code has been saved.")
@@ -590,7 +593,7 @@ def view_assessment(request, token):
                 'assessment': assessment,
                 'question': assessment.chosen_question,
                 'remaining_time': assessment.time_remaining(),
-                'current_date': '2025-03-02 01:26:42',
+                'current_date': timezone.now().date().isoformat(),
                 'current_user': request.user.username,
             })
 
@@ -647,7 +650,7 @@ def submit_assessment(request, token):
 
         return render(request, 'core/assessment_submit_confirmation.html', {
             'assessment': assessment,
-            'current_date': '2025-03-02 02:19:33',
+            'current_date': timezone.now().date().isoformat(),
             'current_user': request.user.username
         })
 
@@ -684,7 +687,7 @@ def save_code(request, token):
         return JsonResponse({
             'status': 'success',
             'message': 'Code saved successfully',
-            'saved_at': '2025-03-02 01:26:42'
+            'saved_at': timezone.now().date().isoformat()
         })
 
     except Assessment.DoesNotExist:
@@ -771,7 +774,7 @@ def view_candidate(request, candidate_id):
     context = {
         'candidate': candidate,
         'assessments': assessments,
-        'current_date': '2025-03-04 02:37:42',
+        'current_date': timezone.now().date().isoformat(),
         'current_user': request.user.username,
     }
 
@@ -808,7 +811,7 @@ def edit_candidate(request, candidate_id):
         'form': form,
         'user_form': user_form,
         'candidate': candidate,
-        'current_date': '2025-03-04 02:37:42',
+        'current_date': timezone.now().date().isoformat(),
         'current_user': request.user.username,
     }
 
@@ -887,7 +890,7 @@ def manager_assessment_detail(request, assessment_id):
 
     context = {
         'assessment': assessment,
-        'current_date': '2025-03-04 02:37:42',
+        'current_date': timezone.now().date().isoformat(),
         'current_user': request.user.username,
     }
 
@@ -935,7 +938,7 @@ def finalize_interview_decision(request, candidate_id, decision):
         context = {
             'candidate': candidate,
             'decision': decision,
-            'current_date': '2025-03-04 02:48:38',
+            'current_date': timezone.now().date().isoformat(),
             'current_user': request.user.username,
         }
         return render(request, 'core/confirm_interview_decision.html', context)
