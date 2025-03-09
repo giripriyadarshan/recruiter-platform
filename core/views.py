@@ -140,8 +140,13 @@ def manager_dashboard(request):
     companies = HiringManager.objects.values('company_name').distinct()
     company_names = [company['company_name'] for company in companies]
 
+    # Get all candidate sources from the model
+    source_choices = dict(Candidate.SOURCE_CHOICES)
+    sources = [{'code': code, 'name': name} for code, name in source_choices.items()]
+
     status_filter = request.GET.get('status', '')
     interview_filter = request.GET.get('interview_status', '')
+    source_filter = request.GET.get('source', '')  # Add source filter
 
     if status_filter:
         if status_filter == 'INVITED':
@@ -160,6 +165,10 @@ def manager_dashboard(request):
     if interview_filter:
         candidates = [c for c in candidates if c.interview_status == interview_filter]
 
+    # Apply source filter if provided
+    if source_filter:
+        candidates = [c for c in candidates if c.source == source_filter]
+
     sort_by = request.GET.get('sort', 'name')
     if sort_by == 'name':
         candidates = sorted(candidates, key=lambda c: c.user.full_name or c.user.username)
@@ -173,6 +182,8 @@ def manager_dashboard(request):
     elif sort_by == 'date':
         candidates = sorted(candidates, key=lambda
             c: c.latest_assessment.created_at if c.latest_assessment else timezone.make_aware(datetime.min))
+    elif sort_by == 'source':  # Add sorting by source
+        candidates = sorted(candidates, key=lambda c: c.source)
 
     context = {
         'candidates': candidates,
@@ -187,8 +198,10 @@ def manager_dashboard(request):
         'current_sort': sort_by,
         'current_filter': status_filter,
         'current_interview_filter': interview_filter,
+        'current_source_filter': source_filter,  # Add current source filter to context
+        'sources': sources,  # Add sources for filtering
+        'current_date': timezone.now().strftime('%Y-%m-%d %H:%M:%S'),
         'current_user': request.user.username,
-        'current_date': timezone.now().date().isoformat(),
     }
 
     return render(request, 'core/manager_dashboard.html', context)

@@ -69,11 +69,7 @@ class Candidate(models.Model):
     Model representing a candidate in the recruitment process.
     """
     SOURCE_CHOICES = [
-        ('DIRECT', 'Direct Application'),
-        ('REFERRAL', 'Referral'),
-        ('LINKEDIN', 'LinkedIn'),
         ('GITHUB', 'GitHub'),
-        ('CAREER_FAIR', 'Career Fair'),
         ('STACK_OVERFLOW', 'Stack Overflow'),
         ('OTHER', 'Other'),
     ]
