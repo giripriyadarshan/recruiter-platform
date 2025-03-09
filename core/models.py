@@ -74,6 +74,7 @@ class Candidate(models.Model):
         ('LINKEDIN', 'LinkedIn'),
         ('GITHUB', 'GitHub'),
         ('CAREER_FAIR', 'Career Fair'),
+        ('STACK_OVERFLOW', 'Stack Overflow'),
         ('OTHER', 'Other'),
     ]
 

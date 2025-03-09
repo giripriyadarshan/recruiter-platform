@@ -76,7 +76,7 @@ class Command(BaseCommand):
                 candidate, created = Candidate.objects.update_or_create(
                     user=user,
                     defaults={
-                        'source': 'Stack Overflow',
+                        'source': 'STACK_OVERFLOW',
                         'source_ranking': float(row.get('weighted_score', 0)),
                         'years_of_experience': 0,
                         'skills': skills_text,
