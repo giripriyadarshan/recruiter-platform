@@ -78,7 +78,6 @@ class Command(BaseCommand):
                     defaults={
                         'source': 'STACK_OVERFLOW',
                         'source_score': float(row.get('weighted_score', 0)),
-                        'years_of_experience': 0,
                         'skills': skills_text,
                         'profile_completed': True,
                         'generated_password': 'default',

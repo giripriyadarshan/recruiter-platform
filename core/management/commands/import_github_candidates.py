@@ -59,7 +59,6 @@ class Command(BaseCommand):
                     defaults={
                         'source': 'GITHUB',
                         'source_score': float(row.get('combined_score', 0)),
-                        'years_of_experience': 0,
                         'skills': 'none',
                         'profile_completed': True,
                         'generated_password': 'default',

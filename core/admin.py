@@ -67,7 +67,7 @@ class CustomUserAdmin(UserAdmin):
 
 
 class CandidateAdmin(admin.ModelAdmin):
-    list_display = ('user', 'source', 'source_score', 'profile_completed', 'years_of_experience', 'created_at')
+    list_display = ('user', 'source', 'source_score', 'profile_completed', 'created_at')
     list_filter = ('source', 'profile_completed')
     search_fields = ('user__username', 'user__email', 'user__full_name', 'skills')
     actions = ['resend_credentials_email']

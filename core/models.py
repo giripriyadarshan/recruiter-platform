@@ -80,7 +80,6 @@ class Candidate(models.Model):
     resume_url = models.URLField(blank=True, null=True)
     profile_completed = models.BooleanField(default=False)
     skills = models.TextField(blank=True)
-    years_of_experience = models.PositiveIntegerField(default=0)
     generated_password = models.CharField(max_length=255, blank=True, null=True, help_text=_(
         'Temporary storage for generated password. Clear after first login.'))
     created_at = models.DateTimeField(auto_now_add=True)
