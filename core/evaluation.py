@@ -170,12 +170,12 @@ def evaluate_submission(assessment: Assessment) -> Dict[str, Any]:
             "--network=none",  # Disable network access
             "--cpus=0.5",  # Limit CPU usage
             "--memory=512m",  # Limit memory usage
-            "--volume", f"{temp_dir}:/workspace",  # Mount the temp directory
-            "recruiter-code-evaluator:latest",  # Docker image
-            f"/workspace/submission.{code_language}",  # Code file
+            # "--volume", f"{temp_dir}:.\workspace",  # Mount the temp directory
+            "hushhushevaluator:latest",  # Docker image
+            f"./workspace/submission.{code_language}",  # Code file
             code_language,  # Language
-            f"/workspace/{os.path.basename(test_data_file)}",  # Test data file
-            "/workspace/output.json",  # Output file
+            f"./workspace/{os.path.basename(test_data_file)}",  # Test data file
+            "./workspace/output.json",  # Output file
             str(timeout)  # Timeout in seconds
         ]
 
