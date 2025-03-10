@@ -77,7 +77,7 @@ class Command(BaseCommand):
                     user=user,
                     defaults={
                         'source': 'STACK_OVERFLOW',
-                        'source_ranking': float(row.get('weighted_score', 0)),
+                        'source_score': float(row.get('weighted_score', 0)),
                         'years_of_experience': 0,
                         'skills': skills_text,
                         'profile_completed': True,

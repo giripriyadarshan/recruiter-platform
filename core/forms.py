@@ -8,7 +8,7 @@ class AddCandidateForm(forms.Form):
     email = forms.EmailField()
     full_name = forms.CharField(max_length=255, required=False)
     source = forms.ChoiceField(choices=Candidate.SOURCE_CHOICES, required=True)
-    source_ranking = forms.IntegerField(min_value=0, max_value=10, required=False, initial=0)
+    source_score = forms.IntegerField(min_value=0, max_value=10, required=False, initial=0)
     years_of_experience = forms.IntegerField(min_value=0, required=False, initial=0)
     skills = forms.CharField(widget=forms.Textarea, required=False)
 
