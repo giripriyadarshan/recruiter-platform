@@ -38,22 +38,6 @@ def cleanup_candidate_data(candidate):
 
             logger.info(f"Assessment {assessment.id} data redacted")
 
-        # Anonymize candidate personal data
-        candidate.phone = "[REDACTED]"
-        candidate.location = "[REDACTED]"
-        candidate.linkedin_url = ""
-        candidate.github_url = ""
-        candidate.skills = "[REDACTED]"
-        candidate.current_role = "[REDACTED]"
-        candidate.notes = "[REDACTED - Data removed per privacy policy]"
-        candidate.data_cleanup_status = "ANONYMIZED"
-        candidate.save()
-
-        # Anonymize user account
-        random_identifier = f"anonymized_{candidate.id}_{int(timezone.now().timestamp())}"
-        user.email = f"{random_identifier}@anonymized.local"
-        user.first_name = "Anonymized"
-        user.last_name = "User"
         user.is_active = False
         user.save()
 
